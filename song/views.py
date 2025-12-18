@@ -2,10 +2,12 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.db.models import OuterRef, Subquery
 
 from .models import Song
 from .serializers import SongSerializer
 from user.models import LikedSong, RecentlyPlayedSong
+
 
 class SongListView(generics.ListAPIView):
     serializer_class = SongSerializer
@@ -15,12 +17,14 @@ class SongListView(generics.ListAPIView):
 
     def get_serializer_context(self):
         return {"request": self.request}
+
 class SongDetailView(generics.RetrieveAPIView):
     queryset = Song.objects.all()
     serializer_class = SongSerializer
 
     def get_serializer_context(self):
         return {"request": self.request}
+
 class ToggleLikeSongView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -39,16 +43,12 @@ class ToggleLikeSongView(APIView):
 
         if liked.exists():
             liked.delete()
-            return Response(
-                {"is_liked": False},
-                status=status.HTTP_200_OK
-            )
+            return Response({"is_liked": False}, status=status.HTTP_200_OK)
 
         LikedSong.objects.create(user=user, song=song)
-        return Response(
-            {"is_liked": True},
-            status=status.HTTP_201_CREATED
-        )
+        return Response({"is_liked": True}, status=status.HTTP_201_CREATED)
+
+
 class TrackRecentlyPlayedView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -63,32 +63,49 @@ class TrackRecentlyPlayedView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        RecentlyPlayedSong.objects.update_or_create(
+        RecentlyPlayedSong.objects.create(
             user=user,
-            song=song,
+            song=song
         )
 
         return Response(
-            {"is_recently_played": True},
-            status=status.HTTP_200_OK
+            {"detail": "Song play recorded"},
+            status=status.HTTP_201_CREATED
         )
+
 class LikedSongsView(generics.ListAPIView):
     serializer_class = SongSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Song.objects.filter(liked_by_users=self.request.user)
+        return Song.objects.filter(
+            liked_by_users=self.request.user
+        ).distinct()
 
     def get_serializer_context(self):
         return {"request": self.request}
+
+
+
 class RecentlyPlayedSongsView(generics.ListAPIView):
     serializer_class = SongSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Song.objects.filter(
-            recently_played_by_users=self.request.user
-        ).order_by('-recentlyplayed_by_users__played_at')
+        user = self.request.user
+
+        latest_play = RecentlyPlayedSong.objects.filter(
+            user=user,
+            song=OuterRef("pk")
+        ).order_by("-played_at")
+
+        return (
+            Song.objects
+            .filter(play_history__user=user)
+            .annotate(last_played_at=Subquery(latest_play.values("played_at")[:1]))
+            .order_by("-last_played_at")
+            .distinct()
+        )
 
     def get_serializer_context(self):
         return {"request": self.request}
