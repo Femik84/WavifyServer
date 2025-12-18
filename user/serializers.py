@@ -3,10 +3,6 @@ from django.contrib.auth import get_user_model, authenticate
 
 User = get_user_model()
 
-
-# ============================
-# REGISTER SERIALIZER
-# ============================
 class RegisterSerializer(serializers.ModelSerializer):
     """
     Serializer for registering a new user.
